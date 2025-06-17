@@ -8,6 +8,5 @@ object HomeScreen
 @Serializable
 data class ARScreen(val model: String)
 
-
 @Serializable
-object DisplayScreen
+data class DisplayScreen(val selectedModel: String)

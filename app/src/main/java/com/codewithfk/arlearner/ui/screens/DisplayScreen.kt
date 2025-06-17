@@ -66,7 +66,7 @@ import io.github.sceneview.rememberOnGestureListener
 import io.github.sceneview.rememberView
 
 @Composable
-fun DisplayScreen(navController: NavController) {
+fun DisplayScreen(navController: NavController, selectedModel: String) {
     val context = LocalContext.current
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -146,7 +146,7 @@ fun DisplayScreen(navController: NavController) {
         }
 
         arCoreStatus == ARCoreStatus.Available -> {
-            ARScreenContent(navController = navController)
+            ARScreenContent(navController = navController, selectedModel = selectedModel)
         }
 
         else -> {
@@ -356,26 +356,44 @@ private fun ARCoreErrorScreen(
 }
 
 @Composable
-private fun ARScreenContent(navController: NavController) {
-    val modelName = "models/cat.glb"
+private fun ARScreenContent(navController: NavController, selectedModel: String) {
+    val modelName = selectedModel
     val context = LocalContext.current
 
-    // Verificar que el modelo existe
+    // Verificar que el modelo existe y es válido
     var modelExists by remember { mutableStateOf<Boolean?>(null) }
+    var modelError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         try {
-            context.assets.open(modelName).use {
-                Log.d("AR_DEBUG", "Model file found: $modelName")
-                modelExists = true
+            context.assets.open("models/$modelName").use { inputStream ->
+                val bytes = inputStream.readBytes()
+                Log.d("AR_DEBUG", "Model file found: $modelName, size: ${bytes.size} bytes")
+
+                // Verificar que es un archivo GLB válido (debe empezar con "glTF")
+                if (bytes.size < 4) {
+                    modelError = "Archivo muy pequeño para ser un GLB válido"
+                    modelExists = false
+                } else {
+                    val magic = String(bytes.sliceArray(0..3))
+                    if (magic == "glTF") {
+                        Log.d("AR_DEBUG", "Valid GLB magic header found")
+                        modelExists = true
+                    } else {
+                        Log.e("AR_ERROR", "Invalid GLB magic header: $magic")
+                        modelError = "Archivo GLB inválido - magic header: $magic"
+                        modelExists = false
+                    }
+                }
             }
         } catch (e: Exception) {
-            Log.e("AR_ERROR", "Model file not found: $modelName", e)
+            Log.e("AR_ERROR", "Model file not found or error reading: $modelName", e)
+            modelError = "Archivo de modelo no encontrado: ${e.message}"
             modelExists = false
         }
     }
 
-    // Mostrar error si el modelo no existe
+    // Mostrar error si el modelo no existe o es inválido
     if (modelExists == false) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -388,19 +406,36 @@ private fun ARScreenContent(navController: NavController) {
                 modifier = Modifier.padding(bottom = 16.dp)
             )
             Text(
-                text = "Archivo de modelo no encontrado",
+                text = "Problema con el modelo 3D",
                 fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(16.dp)
             )
             Text(
-                text = "El archivo $modelName no está en la carpeta assets",
+                text = modelError ?: "El archivo $modelName no está disponible o está corrupto",
                 textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Usaremos un cubo simple en su lugar",
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium
             )
             Button(
-                onClick = { navController.popBackStack() },
+                onClick = {
+                    modelExists = true // Forzar el uso del cubo simple
+                },
                 modifier = Modifier.padding(top = 16.dp)
+            ) {
+                Text("Usar Cubo Simple")
+            }
+            Button(
+                onClick = { navController.popBackStack() },
+                modifier = Modifier.padding(top = 8.dp)
             ) {
                 Text("Volver")
             }
@@ -522,7 +557,7 @@ private fun ARScreenContent(navController: NavController) {
                                 return@rememberOnGestureListener
                             }
 
-                            Log.d("AR_DEBUG", "Creating anchor node...")
+                            Log.d("AR_DEBUG", "Creating anchor node with model: $modelName")
                             val anchorNode = Utils.createAnchorNode(
                                 engine, modelLoader, materialLoader, modelInstances, anchor, modelName
                             )
